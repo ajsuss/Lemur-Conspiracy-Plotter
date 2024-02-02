@@ -26,7 +26,7 @@ class DrawingApp:
         self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode)
         self.generate_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
-        # Button to preview drawing
+        # Button to preview drawing for testing
         self.preview_button = tk.Button(root, text="Preview Drawing", command=self.preview_drawing)
         self.preview_button.pack(side=tk.LEFT, pady=10)
 
@@ -44,19 +44,32 @@ class DrawingApp:
     def is_within_canvas(self, x, y):
         return 0 <= x <= self.canvas.winfo_width() and 0 <= y <= self.canvas.winfo_height()
 
+    #Updated Draw Method to deal with polling issue
     def draw(self, event):
         if self.old_x and self.old_y and self.is_within_canvas(event.x, event.y):
+            # Interpolate points between the last position and the current position
+            self.interpolate_and_store(self.old_x, self.old_y, event.x, event.y)
+
             # Draw line
             self.canvas.create_line(self.old_x, self.old_y, event.x, event.y,
-                                   width=self.line_width, fill=self.color,
-                                   capstyle=tk.ROUND, smooth=tk.TRUE, splinesteps=36)
-
-            # Store position
-            self.positions.append((event.x, event.y))
-            print(f"Stored Position: {event.x}, {event.y}")
+                                    width=self.line_width, fill=self.color,
+                                    capstyle=tk.ROUND, smooth=tk.TRUE, splinesteps=36)
 
         self.old_x = event.x
         self.old_y = event.y
+
+    def interpolate_and_store(self, x1, y1, x2, y2):
+        distance = math.sqrt((x2 - x1)**2 + (y2 - y1)**2)
+        
+        # Define how many points based on the distance
+        points_count = max(int(distance / 2), 1)  # Ensure at least one point is added
+
+        for i in range(1, points_count + 1):
+            # Linear interpolation
+            x = x1 + (x2 - x1) * i / points_count
+            y = y1 + (y2 - y1) * i / points_count
+            self.positions.append((x, y))
+            print(f"Stored Position: {x}, {y}")
 
     def reset(self, event):
         self.old_x = None
@@ -91,7 +104,7 @@ class DrawingApp:
 
             last_x, last_y = x, y
 
-    def generate_gcode(self, filename='output.txt', deadzone=20):
+    def generate_gcode(self, filename='output.txt', deadzone=10):
         with open(filename, 'w') as file:
             last_x, last_y = None, None
             pen_up = True
@@ -108,8 +121,9 @@ class DrawingApp:
                         file.write("M0 ;Pen up\n")
                         pen_up = True
                 
-                xScaled = self.x_scale * x
-                yScaled = self.y_scale * y
+                # Scale and round the coordinates to a resolution of 0.1mm
+                xScaled = round(self.x_scale * x, 1)
+                yScaled = round(self.y_scale * y, 1)
 
                 if pen_up:
                     # Move to new position with pen up
