@@ -7,14 +7,13 @@ class DrawingApp:
         self.root = root
         self.root.title("Drawing App")
 
-        #Plotter Dimensions in mm
-        self.plotter_width = 280  
-        self.plotter_height = 200  
+        # Plotter Dimensions in mm
+        self.plotter_width = 280
+        self.plotter_height = 200
 
-        #Canvas Size in Pixels
+        # Canvas Size in Pixels
         self.canvas_width = self.plotter_width * 5
         self.canvas_height = self.plotter_height * 5
-        
 
         self.canvas = tk.Canvas(root, bg='white', width=self.canvas_width, height=self.canvas_height)
         self.canvas.pack(padx=10, pady=10)
@@ -25,7 +24,11 @@ class DrawingApp:
 
         # Button to generate G-code
         self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode)
-        self.generate_button.pack(pady=10)
+        self.generate_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+
+        # Button to preview drawing
+        self.preview_button = tk.Button(root, text="Preview Drawing", command=self.preview_drawing)
+        self.preview_button.pack(side=tk.LEFT, pady=10)
 
     def setup(self):
         self.old_x = None
@@ -58,8 +61,37 @@ class DrawingApp:
     def reset(self, event):
         self.old_x = None
         self.old_y = None
+        
+    def preview_drawing(self):
+        preview_window = tk.Toplevel(self.root)
+        preview_window.title("Drawing Preview")
+        
+        preview_canvas = tk.Canvas(preview_window, bg='white', width=self.canvas_width, height=self.canvas_height)
+        preview_canvas.pack()
 
-    def generate_gcode(self, filename='output.txt', deadzone=10):
+        last_x, last_y = None, None
+        deadzone = 10
+        positions_copy = self.positions.copy()  # Use a copy to preserve original positions
+
+        while positions_copy:
+            x, y = positions_copy.popleft()
+
+            if last_x is not None and last_y is not None:
+                distance = math.sqrt((x - last_x) ** 2 + (y - last_y) ** 2)
+                if distance > deadzone:
+                    # Starting a new stroke, so lift the pen
+                    last_x, last_y = None, None  # Reset last positions to create a gap
+
+            if last_x is not None and last_y is not None:
+                # Draw line for continuous stroke
+                preview_canvas.create_line(last_x, last_y, x, y, width=self.line_width, fill=self.color)
+            else:
+                # Mark the start of a new stroke
+                preview_canvas.create_oval(x-2, y-2, x+2, y+2, fill=self.color)
+
+            last_x, last_y = x, y
+
+    def generate_gcode(self, filename='output.txt', deadzone=20):
         with open(filename, 'w') as file:
             last_x, last_y = None, None
             pen_up = True
