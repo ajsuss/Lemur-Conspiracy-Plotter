@@ -1,1 +1,4 @@
 tk
+numpy
+opencv-python
+absl-py
