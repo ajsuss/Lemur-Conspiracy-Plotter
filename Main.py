@@ -1,19 +1,45 @@
+# TODO: flip y!
 import tkinter as tk
 from collections import deque
 import math
+import serial
+import codecs
+
+CONNECT_OVER_SERIAL = False
+
+class GCodeSender:
+    def __init__(self):
+        self.serial_instance = serial.serial_for_url(
+            '/dev/ttyUSB0', baudrate=115200, bytesize=8, parity='N', 
+            stopbits=1, timeout=None, xonxoff=False, rtscts=False, dsrdtr=False)
+        encoding = 'UTF-8'
+        errors = 'replace'
+        self.tx_encoder = codecs.getincrementalencoder(encoding)(errors)
+        # G90: absolute position, G21: millimeters
+        self.send('G90 G21 \n')
+
+    def send(self, message):
+        for c in message:
+            self.serial_instance.write(self.tx_encoder.encode(c))
+
+    def __del__(self):
+        self.serial_instance.close()
+
 
 class DrawingApp:
-    def __init__(self, root):
+    def __init__(self, root, gcode_sender):
         self.root = root
         self.root.title("Drawing App")
 
+        self.gcode_sender = gcode_sender
+
         # Plotter Dimensions in mm
-        self.plotter_width = 280
-        self.plotter_height = 200
+        self.plotter_width = 500
+        self.plotter_height = 440
 
         # Canvas Size in Pixels
-        self.canvas_width = self.plotter_width * 5
-        self.canvas_height = self.plotter_height * 5
+        self.canvas_width = self.plotter_width * 2
+        self.canvas_height = self.plotter_height * 2
 
         self.canvas = tk.Canvas(root, bg='white', width=self.canvas_width, height=self.canvas_height)
         self.canvas.pack(padx=10, pady=10)
@@ -128,12 +154,16 @@ class DrawingApp:
                 if pen_up:
                     # Move to new position with pen up
                     file.write(f"G0 X{xScaled} Y{yScaled}\n")
+                    gcode = f"G1 X{xScaled} Y{yScaled} F500\n"
                     # Pen down command
                     file.write("M1 ;Pen down\n")
                     pen_up = False
                 else:
                     # Move to new position with pen down
                     file.write(f"G1 X{xScaled} Y{yScaled}\n")
+                    gcode = f"G1 X{xScaled} Y{yScaled} F500\n"
+                if self.gcode_sender:
+                    self.gcode_sender.send(gcode)
 
                 last_x, last_y = x, y
 
@@ -144,7 +174,11 @@ class DrawingApp:
 
 def main():
     root = tk.Tk()
-    app = DrawingApp(root)
+    if CONNECT_OVER_SERIAL:
+        gcode_sender = GCodeSender()
+    else:
+        gcode_sender = None
+    app = DrawingApp(root, gcode_sender)
     root.mainloop()
 
 if __name__ == '__main__':
