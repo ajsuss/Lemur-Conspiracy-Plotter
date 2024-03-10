@@ -5,12 +5,12 @@ import math
 import serial
 import codecs
 
-CONNECT_OVER_SERIAL = False
+CONNECT_OVER_SERIAL = True
 
 class GCodeSender:
     def __init__(self):
         self.serial_instance = serial.serial_for_url(
-            '/dev/ttyUSB0', baudrate=115200, bytesize=8, parity='N', 
+            'COM9', baudrate=115200, bytesize=8, parity='N', 
             stopbits=1, timeout=None, xonxoff=False, rtscts=False, dsrdtr=False)
         encoding = 'UTF-8'
         errors = 'replace'
@@ -21,6 +21,10 @@ class GCodeSender:
     def send(self, message):
         for c in message:
             self.serial_instance.write(self.tx_encoder.encode(c))
+            
+    def send_homing_command(self):
+        # Send the $H homing command to the CNC machine
+        self.send('$H\n')
 
     def __del__(self):
         self.serial_instance.close()
@@ -47,6 +51,10 @@ class DrawingApp:
         self.setup()
         self.canvas.bind("<B1-Motion>", self.draw)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
+        
+        # Button to home the machine
+        self.home_button = tk.Button(root, text="Home Machine", command=self.home_machine)
+        self.home_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
         # Button to generate G-code
         self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode)
@@ -55,6 +63,10 @@ class DrawingApp:
         # Button to preview drawing for testing
         self.preview_button = tk.Button(root, text="Preview Drawing", command=self.preview_drawing)
         self.preview_button.pack(side=tk.LEFT, pady=10)
+    
+    def home_machine(self):
+        # Call the method to send the homing command
+        self.gcode_sender.send_homing_command()
 
     def setup(self):
         self.old_x = None
@@ -149,19 +161,19 @@ class DrawingApp:
                 
                 # Scale and round the coordinates to a resolution of 0.1mm
                 xScaled = round(self.x_scale * x, 1)
-                yScaled = round(self.y_scale * y, 1)
+                yScaled = round(self.y_scale * (self.canvas_height - y), 1)  # Flip the y coordinate
 
                 if pen_up:
                     # Move to new position with pen up
                     file.write(f"G0 X{xScaled} Y{yScaled}\n")
-                    gcode = f"G1 X{xScaled} Y{yScaled} F500\n"
+                    gcode = f"G1 X{xScaled} Y{yScaled} F3000\n"
                     # Pen down command
                     file.write("M1 ;Pen down\n")
                     pen_up = False
                 else:
                     # Move to new position with pen down
                     file.write(f"G1 X{xScaled} Y{yScaled}\n")
-                    gcode = f"G1 X{xScaled} Y{yScaled} F500\n"
+                    gcode = f"G1 X{xScaled} Y{yScaled} F3000\n"
                 if self.gcode_sender:
                     self.gcode_sender.send(gcode)
 
