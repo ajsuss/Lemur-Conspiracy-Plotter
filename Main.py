@@ -1,16 +1,35 @@
-# TODO: flip y!
+r"""
+To run while not connected to the plotter:
+python Main.py --serial_port=none
+ """
+from absl import app
+from absl import flags
+import time
 import tkinter as tk
 from collections import deque
 import math
 import serial
 import codecs
+import numpy as np
+from matplotlib import pyplot as plt
+from scipy.interpolate import splev
+from scipy.interpolate import splprep
 
-CONNECT_OVER_SERIAL = True
+SERIAL_PORT = flags.DEFINE_string(
+    'serial_port', '/dev/ttyUSB0', 
+    'Port for plotter. Something like COM9 for Windows. "" or "none" to not connect.')
+
+# Follow along as the user draws
+SYNC_MODE = True
+SPEED = 7000
+SEND_FREQUENCY = 20
 
 class GCodeSender:
-    def __init__(self):
+    def __init__(self, serial_port):
+        # if connection fails, want serial_instance = None so del works
+        self.serial_instance = None
         self.serial_instance = serial.serial_for_url(
-            'COM9', baudrate=115200, bytesize=8, parity='N', 
+            serial_port, baudrate=115200, bytesize=8, parity='N', 
             stopbits=1, timeout=None, xonxoff=False, rtscts=False, dsrdtr=False)
         encoding = 'UTF-8'
         errors = 'replace'
@@ -23,12 +42,33 @@ class GCodeSender:
             self.serial_instance.write(self.tx_encoder.encode(c))
             
     def send_homing_command(self):
-        # Send the $H homing command to the CNC machine
+        print('Homing')
         self.send('$H\n')
 
-    def __del__(self):
-        self.serial_instance.close()
+    def reset_fluidnc(self):
+        """Pulse the reset line for FluidNC"""
+        print("Resetting FluidNC")
+        self.serial_instance.rts = True
+        self.serial_instance.dtr = False
+        time.sleep(1)
+        self.serial_instance.rts = False
+        # TODO: progress bar
+        time.sleep(12)
 
+    def __del__(self):
+        if self.serial_instance:
+            self.serial_instance.close()
+
+
+def fit_bspline(points):
+    x_coords, y_coords = zip(*points)
+    # TODO: Clean this up. (removing duplicate points)
+    points = np.array(points)[np.array(np.where(np.abs(np.diff(x_coords)) + np.abs(np.diff(y_coords)) > 0))].squeeze()
+    x_coords = points[:, 0]
+    y_coords = points[:, 1]
+    tck, u = splprep([x_coords, y_coords], k=3)
+    bspline = splev(u[::5], tck)
+    return np.array(bspline).T
 
 class DrawingApp:
     def __init__(self, root, gcode_sender):
@@ -36,10 +76,11 @@ class DrawingApp:
         self.root.title("Drawing App")
 
         self.gcode_sender = gcode_sender
+        self.sync_mode = SYNC_MODE
 
         # Plotter Dimensions in mm
-        self.plotter_width = 500
-        self.plotter_height = 440
+        self.plotter_width = 570
+        self.plotter_height = 450
 
         # Canvas Size in Pixels
         self.canvas_width = self.plotter_width * 2
@@ -62,11 +103,17 @@ class DrawingApp:
 
         # Button to preview drawing for testing
         self.preview_button = tk.Button(root, text="Preview Drawing", command=self.preview_drawing)
-        self.preview_button.pack(side=tk.LEFT, pady=10)
-    
+        self.preview_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+
+        self.reset_button = tk.Button(root, text="Reset Plotter", command=self.reset_plotter)
+        self.reset_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+
     def home_machine(self):
-        # Call the method to send the homing command
         self.gcode_sender.send_homing_command()
+        
+    def reset_plotter(self):
+        self.gcode_sender.reset_fluidnc()
+        self.home_machine()
 
     def setup(self):
         self.old_x = None
@@ -84,6 +131,8 @@ class DrawingApp:
 
     #Updated Draw Method to deal with polling issue
     def draw(self, event):
+        if self.old_x == event.x and self.old_y == event.y:
+            return  # splprep doesn't like repeating points
         if self.old_x and self.old_y and self.is_within_canvas(event.x, event.y):
             # Interpolate points between the last position and the current position
             self.interpolate_and_store(self.old_x, self.old_y, event.x, event.y)
@@ -92,6 +141,8 @@ class DrawingApp:
             self.canvas.create_line(self.old_x, self.old_y, event.x, event.y,
                                     width=self.line_width, fill=self.color,
                                     capstyle=tk.ROUND, smooth=tk.TRUE, splinesteps=36)
+            if self.sync_mode and len(self.positions) > SEND_FREQUENCY:
+                self.generate_gcode()
 
         self.old_x = event.x
         self.old_y = event.y
@@ -101,19 +152,31 @@ class DrawingApp:
         
         # Define how many points based on the distance
         points_count = max(int(distance / 2), 1)  # Ensure at least one point is added
+        # TODO: Maybe remove interpolation and explicitly mark pen up and pen down
 
         for i in range(1, points_count + 1):
             # Linear interpolation
             x = x1 + (x2 - x1) * i / points_count
             y = y1 + (y2 - y1) * i / points_count
             self.positions.append((x, y))
-            print(f"Stored Position: {x}, {y}")
 
     def reset(self, event):
         self.old_x = None
         self.old_y = None
         
     def preview_drawing(self):
+        bspline = fit_bspline(self.positions)
+        self._preview_drawing(bspline)
+        # self.plot_bspline()
+
+    def plot_bspline(self, bspline):
+        plt.plot(*zip(*self.positions), marker='o', linestyle='-', color='blue', label='Mouse Points')
+        plt.plot(*zip(*bspline), marker='x', linestyle='-', color='red', label='B Spline')
+
+        plt.legend()
+        plt.show()
+
+    def _preview_drawing(self, positions):
         preview_window = tk.Toplevel(self.root)
         preview_window.title("Drawing Preview")
         
@@ -122,10 +185,8 @@ class DrawingApp:
 
         last_x, last_y = None, None
         deadzone = 10
-        positions_copy = self.positions.copy()  # Use a copy to preserve original positions
 
-        while positions_copy:
-            x, y = positions_copy.popleft()
+        for x, y in positions:
 
             if last_x is not None and last_y is not None:
                 distance = math.sqrt((x - last_x) ** 2 + (y - last_y) ** 2)
@@ -143,12 +204,13 @@ class DrawingApp:
             last_x, last_y = x, y
 
     def generate_gcode(self, filename='output.txt', deadzone=10):
+        start = time.time()
         with open(filename, 'w') as file:
             last_x, last_y = None, None
             pen_up = True
 
-            while self.positions:
-                x, y = self.positions.popleft()
+            positions = fit_bspline(self.positions)
+            for x, y in positions:
 
                 if last_x is not None and last_y is not None:
                     # Calculate distance to previous point
@@ -166,32 +228,34 @@ class DrawingApp:
                 if pen_up:
                     # Move to new position with pen up
                     file.write(f"G0 X{xScaled} Y{yScaled}\n")
-                    gcode = f"G1 X{xScaled} Y{yScaled} F3000\n"
+                    gcode = f"G1 X{xScaled} Y{yScaled} F{SPEED}\n"
                     # Pen down command
                     file.write("M1 ;Pen down\n")
                     pen_up = False
                 else:
                     # Move to new position with pen down
                     file.write(f"G1 X{xScaled} Y{yScaled}\n")
-                    gcode = f"G1 X{xScaled} Y{yScaled} F3000\n"
+                    gcode = f"G1 X{xScaled} Y{yScaled} F{SPEED}\n"
                 if self.gcode_sender:
                     self.gcode_sender.send(gcode)
 
                 last_x, last_y = x, y
+            self.positions = deque()
 
             # Ensure pen is up at the end
             file.write("M5 ;Pen up\n")
 
-        print(f"G-code written to {filename}")
+        print(f"G-code written to {filename} in {time.time() - start} s")
 
-def main():
+def main(argv):
+    del argv  # unused
     root = tk.Tk()
-    if CONNECT_OVER_SERIAL:
-        gcode_sender = GCodeSender()
+    if SERIAL_PORT.value and SERIAL_PORT.value.lower() != 'none':
+        gcode_sender = GCodeSender(SERIAL_PORT.value)
     else:
         gcode_sender = None
     app = DrawingApp(root, gcode_sender)
     root.mainloop()
 
 if __name__ == '__main__':
-    main()
+    app.run(main)

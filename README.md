@@ -9,5 +9,5 @@ pip install -r requirements.txt
 ## Run plotting script
 
 ```
-python Main.py
+python Main.py --serial_port=none
 ```
