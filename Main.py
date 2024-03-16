@@ -92,8 +92,8 @@ class DrawingApp:
         self.sync_mode = SYNC_MODE
 
         # Plotter Dimensions in mm
-        self.plotter_width = 570
-        self.plotter_height = 450
+        self.plotter_width = 556
+        self.plotter_height = 405
 
         # Canvas Size in Pixels
         self.canvas_width = self.plotter_width * 2
@@ -142,12 +142,12 @@ class DrawingApp:
         self.home_machine()
 
     def raise_pen(self):
-        gcode = "G0 Z5\n"
+        gcode = "G0 Z-5\n"
         self.gcode_sender.send(gcode)
         self.pen_up = True
 
     def lower_pen(self):
-        gcode = "G0 Z-5\n"
+        gcode = "G0 Z5\n"
         self.gcode_sender.send(gcode)
         self.pen_up = False
 
@@ -227,7 +227,7 @@ class DrawingApp:
         start = time.time()
         while self.positions:
             if self.positions[0] == PEN_UP:
-                gcode = "G0 Z5\n"
+                gcode = "G0 Z-5\n"
                 self.pen_up = True
                 if self.gcode_sender:
                     self.gcode_sender.send(gcode)
@@ -245,7 +245,7 @@ class DrawingApp:
                 gcode = f"G1 X{xScaled} Y{yScaled} F{SPEED}\n"
 
                 if self.pen_up:
-                    gcode += "G0 Z-5\n"
+                    gcode += "G0 Z5\n"
                     self.pen_up = False
 
                 if self.gcode_sender:
