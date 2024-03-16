@@ -38,6 +38,7 @@ class GCodeSender:
         self.send('G90 G21 \n')
 
     def send(self, message):
+        print(message)
         for c in message:
             self.serial_instance.write(self.tx_encoder.encode(c))
             
