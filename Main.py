@@ -38,7 +38,6 @@ class GCodeSender:
         self.send('G90 G21 \n')
 
     def send(self, message):
-        print(message)
         for c in message:
             self.serial_instance.write(self.tx_encoder.encode(c))
             
@@ -76,16 +75,10 @@ class GCodeFileWriter:
 
 
 def fit_bspline(points):
-    if not len(points):
-        return []
-    x_coords, y_coords = zip(*points)
-    try:
-        tck, u = splprep([x_coords, y_coords], k=3)
-    except TypeError:
-        print("TYPE ERROR!")
-        print(len(points))
-        print(points)
+    if len(points) <= 3:
         return points
+    x_coords, y_coords = zip(*points)
+    tck, u = splprep([x_coords, y_coords], k=3)
     bspline = splev(u[::3], tck)
     return np.array(bspline).T
 
