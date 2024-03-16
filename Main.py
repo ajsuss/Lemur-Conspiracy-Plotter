@@ -78,7 +78,13 @@ def fit_bspline(points):
     if not len(points):
         return []
     x_coords, y_coords = zip(*points)
-    tck, u = splprep([x_coords, y_coords], k=3)
+    try:
+        tck, u = splprep([x_coords, y_coords], k=3)
+    except TypeError:
+        print("TYPE ERROR!")
+        print(len(points))
+        print(points)
+        return points
     bspline = splev(u[::3], tck)
     return np.array(bspline).T
 
