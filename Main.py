@@ -18,10 +18,11 @@ SERIAL_PORT = flags.DEFINE_string(
     'Port for plotter. Something like COM9 for Windows. "" or "none" to not connect.')
 
 # Follow along as the user draws
-SYNC_MODE = True
+SYNC_MODE = False
 SPEED = 7000
 SEND_FREQUENCY = 20
 PEN_UP = (None, None)
+BUTTON_FONT = ('Arial', 18)
 
 
 class GCodeSender:
@@ -106,29 +107,29 @@ class DrawingApp:
         self.canvas.bind("<B1-Motion>", self.draw)
         self.canvas.bind("<ButtonRelease-1>", self.reset)
         
-        # Button to home the machine
-        self.home_button = tk.Button(root, text="Home Machine", command=self.home_machine)
-        self.home_button.pack(side=tk.LEFT, padx=(20, 20), pady=10)
-
         # Button to generate G-code
-        self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode)
-        self.generate_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode, font=BUTTON_FONT)
+        self.generate_button.pack(side=tk.LEFT, padx=(20, 20), pady=10)
 
         # Button to preview drawing for testing
         self.preview_button = tk.Button(root, text="Preview Drawing", command=self.preview_drawing,
-                                        state=tk.DISABLED if SYNC_MODE else tk.NORMAL)
+                                        state=tk.DISABLED if SYNC_MODE else tk.NORMAL, font=BUTTON_FONT)
         self.preview_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
-        self.reset_button = tk.Button(root, text="Reset Plotter", command=self.reset_plotter)
-        self.reset_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
-
-        self.pen_up_button = tk.Button(root, text="Pen up", command=self.raise_pen)
+        self.pen_up_button = tk.Button(root, text="Pen Up", command=self.raise_pen, font=BUTTON_FONT)
         self.pen_up_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
-        self.pen_down_button = tk.Button(root, text="Pen down", command=self.lower_pen)
+        self.pen_down_button = tk.Button(root, text="Pen Down", command=self.lower_pen, font=BUTTON_FONT)
         self.pen_down_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
-        self.stop_button = tk.Button(root, text="Stop", command=self.stop_plotter, fg='white', bg='red')
+        self.reset_button = tk.Button(root, text="Reset Plotter", command=self.reset_plotter, font=BUTTON_FONT)
+        self.reset_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+
+        # Button to home the machine
+        self.home_button = tk.Button(root, text="Home Plotter", command=self.home_machine, font=BUTTON_FONT)
+        self.home_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+
+        self.stop_button = tk.Button(root, text="Stop", command=self.stop_plotter, fg='white', bg='red', font=BUTTON_FONT)
         self.stop_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
 
     def home_machine(self):
