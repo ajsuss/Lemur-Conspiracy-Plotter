@@ -10,6 +10,7 @@ from absl import app
 from absl import flags
 import time
 import tkinter as tk
+import customtkinter
 import serial
 import codecs
 import threading
@@ -17,6 +18,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.interpolate import splev
 from scipy.interpolate import splprep
+import os
+from PIL import Image
 
 SERIAL_PORT = flags.DEFINE_string(
     'serial_port', '/dev/ttyUSB0', 
@@ -27,9 +30,15 @@ PEN_UP = (None, None)
 BUTTON_FONT = ('Arial', 18)
 PEN_UP_GCODE = "G0 Z-5\n"
 
+customtkinter.set_appearance_mode("dark")  # Modes: system (default), light, dark
+customtkinter.set_default_color_theme("blue")  # Themes: blue (default), dark-blue, green
+customtkinter.set_widget_scaling(2)  # widget dimensions and text size
+# customtkinter.set_window_scaling(2)  # window geometry dimensions
+customtkinter.DrawEngine.preferred_drawing_method = "circle_shapes"
+
 
 class GCodeSender:
-    def __init__(self, serial_port):
+    def __init__(self, serial_port, allow_position_query=True):
         # if connection fails, want serial_instance = None so del works
         self.serial_instance = None
         self.serial_instance = serial.serial_for_url(
@@ -40,8 +49,10 @@ class GCodeSender:
         self.tx_encoder = codecs.getincrementalencoder(encoding)(errors)
         # G90: absolute position, G21: millimeters
         self.send('G90 G21 \n')
+        self.allow_position_query = allow_position_query
 
     def send(self, message):
+        # print('sending', message)
         for c in message:
             self.serial_instance.write(self.tx_encoder.encode(c))
             
@@ -63,7 +74,9 @@ class GCodeSender:
         time.sleep(12)
 
     def get_position(self):
-        self.serial_instance.reset_input_buffer()
+        # TODO: Make this more elegant?
+        if not self.allow_position_query:
+            return None
         self.send('?')
         line = self.serial_instance.read_until().decode("UTF-8").strip()
         if not (line.startswith('<') and line.endswith('>')):
@@ -105,7 +118,7 @@ def fit_bspline(points):
 class DrawingApp:
     def __init__(self, root, gcode_sender):
         self.root = root
-        self.root.title("Drawing App")
+        self.root.title("Lemur Conspiracy Plotter")
 
         self.gcode_sender = gcode_sender
 
@@ -113,11 +126,17 @@ class DrawingApp:
         self.plotter_width = 556
         self.plotter_height = 405
 
+        # import pdb; pdb.set_trace()
+        left_frame  =  tk.Frame(root,  width=200,  height=400,  bg=root.cget('bg'))
+        left_frame.pack(side='left',  fill='both',  padx=10,  pady=5,  expand=True)
+
+        right_frame  =  tk.Frame(root,  width=650,  height=400,  bg=root.cget('bg'))
+        right_frame.pack(side='right',  fill='both',  padx=10,  pady=5,  expand=True)
         # Canvas Size in Pixels
         self.canvas_width = self.plotter_width * 2
         self.canvas_height = self.plotter_height * 2
 
-        self.canvas = tk.Canvas(root, bg='white', width=self.canvas_width, height=self.canvas_height)
+        self.canvas = tk.Canvas(left_frame, bg='white', width=self.canvas_width, height=self.canvas_height)
         self.canvas.pack(padx=10, pady=10)
 
         self.setup()
@@ -130,40 +149,51 @@ class DrawingApp:
 
         self.sync_mode = False
         self.stop_sync_flag = False
-        
-        # Button to generate G-code
-        self.generate_button = tk.Button(root, text="Generate G-code", command=self.generate_gcode, font=BUTTON_FONT)
-        self.generate_button.pack(side=tk.LEFT, padx=(20, 20), pady=10)
 
-        self.toggle_sync_mode_button = tk.Button(root, text="Follow", command=self.toggle_sync_mode, font=BUTTON_FONT)
-        self.toggle_sync_mode_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        def load_image(filename, size=(20, 20)):
+            image_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "images")
+            return customtkinter.CTkImage(Image.open(os.path.join(image_dir, filename)), size=size)
 
-        self.pen_up_button = tk.Button(root, text="Pen Up", command=self.raise_pen, font=BUTTON_FONT)
-        self.pen_up_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        def add_button(text, command, image=None):
+            button = customtkinter.CTkButton(
+                right_frame, 
+                corner_radius=4, 
+                text=text, 
+                image=image, 
+                command=command, 
+                font=BUTTON_FONT)
+            button.pack(padx=(20, 20), pady=10, anchor='w')
+            return button
 
-        self.pen_down_button = tk.Button(root, text="Pen Down", command=self.lower_pen, font=BUTTON_FONT)
-        self.pen_down_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        stop_button = add_button("Stop", self.stop_plotter, image=load_image("stop_96.png"))
+        stop_button.configure(text_color='white', fg_color='firebrick1', hover_color='firebrick4')
+        # TODO: E-stopped indicator?
 
-        self.clear_canvas_button = tk.Button(root, text="Clear canvas", command=lambda: self.canvas.delete('all'), font=BUTTON_FONT)
-        self.clear_canvas_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        self.toggle_sync_mode_button = customtkinter.CTkSwitch(right_frame, text="Follow me", command=self.toggle_sync_mode, font=BUTTON_FONT)
+        self.toggle_sync_mode_button.pack(padx=(20, 20), pady=10, anchor='w')
 
-        self.reset_button = tk.Button(root, text="Reset Plotter", command=self.reset_plotter, font=BUTTON_FONT)
-        self.reset_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        add_button("Send drawing", self.generate_gcode)
+        add_button("Pen Up", self.raise_pen)
+        add_button("Pen Down", self.lower_pen)
+        add_button("Clear Canvas", lambda: self.canvas.delete('all'))
+        add_button("Reset Plotter", self.reset_plotter)
 
+        home_image = load_image("home_light.png")
         # Button to home the machine
-        self.home_button = tk.Button(root, text="Home Plotter", command=self.home_machine, font=BUTTON_FONT)
-        self.home_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        # self.home_button = customtkinter.CTkButton(right_frame, image=home_image, text="Home Plotter", command=self.home_machine, font=BUTTON_FONT)
+        # self.home_button.pack(padx=(0, 20), pady=10)
+        add_button("Home Plotter", self.home_machine, home_image)
 
-        self.stop_button = tk.Button(root, text="Stop", command=self.stop_plotter, fg='white', bg='red', font=BUTTON_FONT)
-        self.stop_button.pack(side=tk.LEFT, padx=(0, 20), pady=10)
+        # self.stop_button = tk.Button(right_frame, text="Stop", command=self.stop_plotter, fg='white', bg='red', font=BUTTON_FONT)
+        # self.stop_button.pack(padx=(0, 20), pady=10)
 
     def toggle_sync_mode(self):
         if self.sync_mode:
-            self.toggle_sync_mode_button.config(relief="raised")
+            # self.toggle_sync_mode_button.config(relief="raised")
             self.stop_sync_flag = True
             self.sync_mode = False
         else:
-            self.toggle_sync_mode_button.config(relief="sunken")
+            # self.toggle_sync_mode_button.config(relief="sunken")
             self.stop_sync_flag = False
             self._send_gcode_thread = threading.Thread(
                 target=self.send_code_sync,
@@ -253,6 +283,7 @@ class DrawingApp:
                 x+r, self.canvas_height - (y+r), fill='purple')
         while not self.stop_sync_flag:
             position = self.gcode_sender.get_position()
+            # position = None
             if position is not None:
                 x, y, z = position
                 x /= self.x_scale
@@ -337,6 +368,11 @@ class PreviewApp:
         r = 4
         while not self.serial_instance.closed:
             line = self.serial_instance.read_until().decode("UTF-8")
+            # if line:
+            #     print('received', line)
+            # if "?" in line:
+            #     self.serial_instance.send("DENIED")
+            #     continue
             if "G0 Z-5" in line:
                 self.preview_canvas.create_oval(last_x-r, last_y-r, last_x+r, last_y+r, fill='red')
                 pen_down = False
@@ -346,8 +382,13 @@ class PreviewApp:
                 pen_down = True
                 continue
             if "G1" in line:
-                xScaled = float(line[line.index("X")+1:].split(" ")[0])
-                yScaled = float(line[line.index("Y")+1:].split(" ")[0])
+                try:
+                    xScaled = float(line[line.index("X")+1:].split(" ")[0])
+                    yScaled = float(line[line.index("Y")+1:].split(" ")[0])
+                except Exception as e:
+                    print(e)
+                    print('line', line)
+                    continue
                 x = xScaled * 2  # TODO: make this x_scale
                 y = 405*2 - yScaled * 2  # TODO : configurable
                 if pen_down:
@@ -360,12 +401,12 @@ class PreviewApp:
 
 def main(argv):
     del argv  # unused
-    root = tk.Tk()
+    root = customtkinter.CTk()
     if SERIAL_PORT.value and SERIAL_PORT.value.lower() != 'none':
         gcode_sender = GCodeSender(SERIAL_PORT.value)
     else:
         # gcode_sender = GCodeFileWriter()
-        gcode_sender = GCodeSender(serial_port='loop://')
+        gcode_sender = GCodeSender(serial_port='loop://', allow_position_query=False)  #, timeout=1e-5)
         preview_app = PreviewApp(root, gcode_sender.serial_instance)
     app = DrawingApp(root, gcode_sender)
     root.mainloop()
