@@ -244,7 +244,7 @@ class DrawingApp:
         self.text_positions = []
         left_corner = self.text_left_corner
         scale_str = self.font_size_var.get()
-        scale = 1 if scale_str == "Font size (1)" else int(scale_str)
+        scale = 1 if scale_str == "Font size (1)" or scale_str == "font size (1)" else int(scale_str)
         for char in text:
             char_code = font_constants.CODE_FROM_CHAR.get(char, '')
             if char_code:
