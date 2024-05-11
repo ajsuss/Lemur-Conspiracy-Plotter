@@ -11,3 +11,6 @@ pip install -r requirements.txt
 ```
 python Main.py --serial_port=none
 ```
+
+# Attribution
+Icons from [Icons8](https://icons8.com).
